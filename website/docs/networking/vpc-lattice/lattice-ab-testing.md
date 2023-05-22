@@ -3,14 +3,34 @@ title: "A/B testing with VPC Lattice"
 sidebar_position: 20
 ---
 
-In this section we will show how to use Amazon VPC Lattice to perform A/B testing gradually shifting traffic from the `checkout` service to the new version we created in the previous section.
+In this section we will show how to use Amazon VPC Lattice for advanced traffic management with weighted routing for blue/green and canary-style deployments.
+
+Let's deploy a modified version of the `checkout` microservice with an added prefix *"Lattice"* in the shipping options. Let's deploy this new version in a new namespace (`checkoutv2`) using Kustomize.
+
+```bash
+$ kubectl apply -k /workspace/modules/networking/vpc-lattice/abtesting/
+```
+
+The checkout namespace now contains two versions of the application:
+
+```bash
+$ kubectl get pods -n checkout
+NAME                              READY   STATUS    RESTARTS   AGE
+TODO
+```
 
 # Set up Lattice Service Network
 
-Create the Kubernetes Gateway `eks-workshop-gw`:
+The following YAML will create a Kubernetes gateway resource which is associated with a VPC Lattice **Service Network.
+
+```file
+networking/vpc-lattice/controller/eks-workshop-gw.yaml
+```
+
+Apply it with the following command:
 
 ```bash
-$ kubectl apply -f workspace/modules/networking/vpc-lattice/controller/eks-workshop-gw.yaml
+$ kubectl apply -f /workspace/modules/networking/vpc-lattice/controller/eks-workshop-gw.yaml
 ```
 
 Verify that `eks-workshop-gw` gateway is created:
@@ -32,15 +52,17 @@ status:
       message: 'aws-gateway-arn: arn:aws:vpc-lattice:us-west-2:<YOUR_ACCOUNT>:servicenetwork/sn-03015ffef38fdc005'
       reason: Reconciled
       status: "True"
+
+$ kubectl wait --for=jsonpath='{.status.conditions.reason}'=Reconciled gateway/eks-workshop-gw
 ```
 
- Now you can see the associated Service Network created in the VPC console under the Lattice resources.
+ Now you can see the associated **Service Network** created in the VPC console under the Lattice resources in the [AWS console](https://console.aws.amazon.com/vpc/home#ServiceNetworks).
 ![Checkout Service Network](assets/servicenetwork.png)
 
 # Create Routes to targets
-We will show how to preform A/B testing between the two versions using `HTTPRoutes`.
+Let's demonstrate how weighted routing works by creating  `HTTPRoutes`.
 
-At the time of writing (Apr 2023), the controller requires a port number for `targetPort` . We are working on a better solution, progress is tracked [here](https://github.com/aws/aws-application-networking-k8s/issues/86).
+At the time of writing (Apr 2023), the controller requires a port number for `targetPort`, rather than simply specifying `http`. We are working on a better solution, progress is tracked [here](https://github.com/aws/aws-application-networking-k8s/issues/86).
 
 ```bash
 $ kubectl patch svc checkout -n checkout --patch '{"spec": { "type": "ClusterIP", "ports": [ { "name": "http", "port": 80, "protocol": "TCP", "targetPort": 8080 } ] } }'
@@ -49,14 +71,14 @@ $ kubectl patch svc checkout -n checkout --patch '{"spec": { "type": "ClusterIP"
 Create the Kubernetes `HTTPRoute` route that evenly distributes the traffic between `checkout` and `checkoutv2`:
 
 ```bash
-$ kubectl apply -f workspace/modules/networking/vpc-lattice/routes/checkout-route.yaml
+$ kubectl apply -f /workspace/modules/networking/vpc-lattice/routes/checkout-route.yaml
 ```
 
 ```file
 /networking/vpc-lattice/routes/checkout-route.yaml
 ```
 
-Find out the `HTTPRoute`'s DNS name from `HTTPRoute` status (highlighted here on the `message` line):
+This step may take 2-3 minutes, but once completed you will find the `HTTPRoute`'s DNS name from `HTTPRoute` status (highlighted here on the `message` line):
 
 ```bash
 $ kubectl describe httproute checkoutroute -n checkout
@@ -78,7 +100,7 @@ status:
          name: eks-workshop-gw
 ```
 
- Now you can see the associated Service created in the VPC console under the Lattice resources.
+ Now you can see the associated Service created in the [VPC Lattice console](https://console.aws.amazon.com/vpc/home#Services) under the Lattice resources.
 ![CheckoutRoute Service](assets/checkoutroute.png)
 
 Patch the `configmap` to point to the new endpoint.
@@ -88,18 +110,15 @@ $ export CHECKOUT_ROUTE_DNS='http://'$(kubectl get httproute checkoutroute -n ch
 $ kubectl patch configmap/ui -n ui --type merge -p '{"data":{"ENDPOINTS_CHECKOUT": "'${CHECKOUT_ROUTE_DNS}'"}}'
 ```
 
-:::tip Now traffic is handled by Amazon VPC Lattice
-Now Amazon VPC Lattice automatically redirects the traffic to different backends! This also means that you can take full advantage of all the [features](https://aws.amazon.com/vpc/lattice/features/) of Amazon VPC Lattice.
-
+:::tip Traffic is now handled by Amazon VPC Lattice
+Amazon VPC Lattice can now automatically redirect traffic to this service from any source, including different VPCs! You can also take full advantage of other VPC Lattice [features](https://aws.amazon.com/vpc/lattice/features/).
 :::
 
-# Check A/B testing is working
+# Check weighted routing is working
 
-In the real world, A/B testing of new features is normally performed on a percentage of users. 
-To simulate this scenario, we will configure the httproutes so that 50% of the traffic is routed to the old version and the other 50% to the new version of the application. 
-Completing the checkout procedure multiple times with different objects in the cart should present the users with the 2 version of the applications. 
+In the real world, canary deployments are regularly used to release a feature to a subset of users. In this scenario, we are artifically routing 50% of users to the new version of the checkout service. Completing the checkout procedure multiple times with different objects in the cart should present the users with the 2 version of the applications. 
 
-Again, we need to port-forward and open the preview of your application with Cloud9.
+Let's ensure that the UI pods are restarted and then port-forward to the preview of your application with Cloud9.
 
 ```bash
 $ kubectl delete --all po -n ui

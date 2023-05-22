@@ -28,5 +28,6 @@ $ kubectl patch svc checkout -n checkout --patch '{"spec": { "type": "ClusterIP"
 $ CHECKOUT_SVC="http://checkout.checkout.svc:80"
 $ kubectl patch configmap/ui -n ui --type merge -p '{"data":{"ENDPOINTS_CHECKOUT": "'${CHECKOUT_SVC}'"}}'
 $ kubectl delete --all pods --namespace=ui
-$ kubectl delete -k workspace/modules/networking/vpc-lattice/abtesting/
+$ kubectl delete -k /workspace/modules/networking/vpc-lattice/abtesting/
+$ kubectl delete -f /workspace/modules/networking/vpc-lattice/controller/deploy-namesystem.yaml
 ```
