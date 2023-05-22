@@ -1,5 +1,5 @@
 ---
-title: "A/B testing with VPC Lattice"
+title: "Traffic Management"
 sidebar_position: 20
 ---
 
